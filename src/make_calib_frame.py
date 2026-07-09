@@ -15,15 +15,15 @@ artefact removal flat field.
 - 5 days images > Make featureless sun > 
 Remove small scale features > Remove limb darkening > Calib frame
 """
-import matplotlib.pyplot as plt
-import numpy as np
 import glob, os
-import astropy.units as u
-from astropy.coordinates import SkyCoord
+import numpy as np
 from sunpy.map import Map
-from astropy.convolution import convolve, Box2DKernel
+import astropy.units as u
 from astropy.io import fits
+import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
+from astropy.coordinates import SkyCoord
+from astropy.convolution import convolve, Box2DKernel
 
 def ComputePixelDistances(image, center_x,center_y):
     num_rows, num_columns = image.shape
