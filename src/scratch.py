@@ -74,15 +74,16 @@ def openfits(file):
 
 if __name__=='__main__':
     PLOT= True 
-    FLAT_CORR= False
+    FLAT_CORR= True
     proj_path= os.path.abspath('..')
-    file= glob.glob(os.path.join(proj_path, "data/interim/*.fits"))[0]
+    file= glob.glob(os.path.join(proj_path, "data/raw/*.fits"))[0]
     m= Map(file)
     if FLAT_CORR:
-        flat_file= glob.glob("NB06_fft*")[0]
-        patch_file= glob.glob("NB06_fft*")[0]
+        flat_file= glob.glob(os.path.join(proj_path, "data/external/NB06_fft*"))[0]
+        patch_file= os.path.join(proj_path, "data/interim/correction.fits")
         flat= openfits(flat_file)
-        data= m.data/flat
+        patch= openfits(patch_file)
+        data= m.data/(flat*patch)
     else:
         data= m.data
     crpix1, crpix2= m.meta['CRPIX1'], m.meta['CRPIX2']
