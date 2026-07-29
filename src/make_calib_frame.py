@@ -24,6 +24,8 @@ import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 from astropy.coordinates import SkyCoord
 from astropy.convolution import convolve, Box2DKernel, Gaussian2DKernel
+from sunpy.map.maputils import all_coordinates_from_map, coordinate_is_on_solar_disk
+
 
 def openfits(file):
     with fits.open(file) as hdu:
@@ -42,6 +44,7 @@ def create_circular_mask(h, w, col, row, radius):
 
 if __name__=="__main__":
     #Define paths
+    PLOT= False
     proj_path= os.path.abspath('..')
     files= glob.glob(os.path.join(proj_path, 'data/raw/*.fits'))
     flat_file= glob.glob(os.path.join(proj_path, 'data/external/NB06*.fits'))[0]
@@ -53,7 +56,7 @@ if __name__=="__main__":
     flat= np.nan_to_num(flat, nan=1.0)
     # Open sun images
     seq = Map(files, sequence=True)
-    cropped_seq, cropped_data=[], []
+    cropped_data=[]
     s= int(1200/0.7) # Crop box in pixels (arcsec/platescale)
     # Centering sun and flat fielding all sun images
     for m in seq:
@@ -75,21 +78,37 @@ if __name__=="__main__":
     # Writing calib frame
     fits.writeto(savepath, smooth_4k, header=header, overwrite=True)
     
-    #### TESTING ####
     #calibration
-    corrected_data=np.array(cropped_data)/smooth
+    for m in seq:
+        header= m.meta
+        cpx1, cpx2= int(m.meta['CRPIX1']), int(m.meta['CRPIX2'])
+        cropped= m.data[cpx2-s:cpx2+s, cpx1-s:cpx1+s]
+        cropped= cropped/smooth
+        corr_frame= np.ones((header['NAXIS1'], header['NAXIS2']))
+        corr_frame[cpx2-s:cpx2+s, cpx1-s:cpx1+s]= cropped
+        hpc_coords= all_coordinates_from_map(m)
+        mask= np.invert(coordinate_is_on_solar_disk(hpc_coords))
+        corr_frame[mask]=np.nan
+        savedata= os.path.join(proj_path, 'data/processed/', header['F_NAME'])
+        sv_m= Map(corr_frame, header)
+        sv_m.save(savedata, overwrite=True)
+        print(header['F_NAME'])
+
+    #### TESTING ####
     #visuals
-    fig, ax= plt.subplots(2,4, sharex=True, sharey=True)
-    ax=ax.ravel()
-    ax[0].imshow(cropped_data[1], origin='lower', vmin= np.min(smooth), vmax= np.max(smooth), cmap='gray')
-    ax[0].set_title(seq[1].meta['T_OBS'][:10])
-    ax[1].imshow(smooth, origin='lower', cmap='gray')
-    ax[1].set_title(f'gaussian= {BLURSIZE}px')
-    for i in range(5):
-        mask= create_circular_mask(2*s, 2*s, s, s, int(seq[i].meta['R_SUN']))
-        corrected_data[i][mask]= np.nan
-        ax[i+2].imshow(corrected_data[i], origin='lower', vmin=0.9, vmax=1.1, cmap='gray')
-        ax[i+2].set_title(seq[i].meta['T_OBS'][:10])
-    plt.tight_layout()
-    plt.savefig(os.path.join(proj_path, f'reports/smooth_{BLURSIZE}.pdf'), dpi=600)
-    plt.show()
+    cropped_data= np.array(cropped_data)/smooth
+    if PLOT:
+        fig, ax= plt.subplots(2,4, sharex=True, sharey=True)
+        ax=ax.ravel()
+        ax[0].imshow(cropped_data[1], origin='lower', vmin= np.min(smooth), vmax= np.max(smooth), cmap='gray')
+        ax[0].set_title(seq[1].meta['T_OBS'][:10])
+        ax[1].imshow(smooth, origin='lower', cmap='gray')
+        ax[1].set_title(f'gaussian= {BLURSIZE}px')
+        for i in range(5):
+            mask= create_circular_mask(2*s, 2*s, s, s, int(seq[i].meta['R_SUN']))
+            corrected_data[i][mask]= np.nan
+            ax[i+2].imshow(corrected_data[i], origin='lower', vmin=0.9, vmax=1.1, cmap='gray')
+            ax[i+2].set_title(seq[i].meta['T_OBS'][:10])
+        plt.tight_layout()
+        plt.savefig(os.path.join(proj_path, f'reports/smooth_{BLURSIZE}.pdf'), dpi=600)
+        plt.show()
