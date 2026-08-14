@@ -8,6 +8,29 @@ from astropy.convolution import convolve, Gaussian2DKernel
 import os, glob
 from datetime import datetime, timezone
 
+def pair_suit_and_hmi(suit_files, hmi_files):
+    """Pairs each SUIT file with the closest HMI file by timestamp."""
+    
+    def parse_suit(f):
+        # Extracts YYYY-MM-DDTHH.MM.SS from filename
+        t_str = os.path.basename(f).split('_')[5][:19]
+        return datetime.strptime(t_str, "%Y-%m-%dT%H.%M.%S").replace(tzinfo=timezone.utc)
+
+    def parse_hmi(f):
+        # Extracts YYYYMMDD_HHMMSS from filename
+        t_str = os.path.basename(f).split('.')[2][:15]
+        return datetime.strptime(t_str, "%Y%m%d_%H%M%S").replace(tzinfo=timezone.utc)
+
+    hmi_times = [(parse_hmi(hf), hf) for hf in hmi_files]
+    pairs = {}
+
+    for sf in suit_files:
+        st = parse_suit(sf)
+        diff_sec, best_hmi = min((abs((ht - st).total_seconds()), hf) for ht, hf in hmi_times)
+        if diff_sec > 3600:
+            print(f"Alert: Time gap > 1 hour ({diff_sec / 3600:.2f} hrs) for {os.path.basename(sf)}")
+        pairs[sf] = best_hmi
+    return pairs
 
 def get_suit_magnetic_mask(suit_file, hmi_file, threshold_G=10.0, min_mu=0, max_mu=1, dilate_arcsec=0):
     """
@@ -42,85 +65,50 @@ def get_suit_magnetic_mask(suit_file, hmi_file, threshold_G=10.0, min_mu=0, max_
         radius_pix = max(1, int(round(dilate_arcsec / pix_scale)))
         struct_elem=disk(radius_pix)
         mask = binary_dilation(mask, structure=struct_elem)
-
-    suit_masked_data = np.where(mask == 1, suit_map.data, 0)
-
+    suit_masked_data = np.where(mask == 0, suit_map.data, np.nan)
     return mask, suit_masked_data, suit_map
 
 
-def plot_suit_magnetic_mask(suit_map, suit_masked, mask):
+def plot_suit_magnetic_mask(suit_map, suit_masked):
     """
     Plots SUIT map, masked data, and mask contour overlay sharing X and Y axes.
     """
-    fig = plt.figure(figsize=(18, 6))
-
-    # Panel 1: Original SUIT Map
-    ax1 = fig.add_subplot(131, projection=suit_map)
-    suit_map.plot(axes=ax1, title="SUIT Level-2 Map")
-
-    # Panel 2: Masked SUIT Data
-    ax2 = fig.add_subplot(132, projection=suit_map, sharex=ax1, sharey=ax1)
-    suit_map.plot(axes=ax2, title="Masked SUIT (|B|/μ > 10G)")
-    ax2.imshow(suit_masked, origin='lower', cmap=suit_map.cmap, norm=suit_map.plot_settings['norm'])
-
-    # Panel 3: Mask Contour Overlay
-    ax3 = fig.add_subplot(133, projection=suit_map, sharex=ax1, sharey=ax1)
-    suit_map.plot(axes=ax3, title="Mask Contour Overlay")
-    ax3.contour(mask, levels=[0.5], colors='red', linewidths=1.0)
-
+    fig, ax= plt.subplots(1,2)
+    ax=ax.ravel()
+    ax[0].imshow(suit_map.data, origin='lower')
+    ax[1].imshow(suit_masked, origin='lower')
     plt.tight_layout()
     plt.show()
 
 
-# Example Usage:
 
 suit_files= sorted(glob.glob("/run/media/sarkar/Elements/SUIT/sftp_drive/suit_data/level2fits/2025/04/*/normal_4k/*NB06*"))
 hmi_files= sorted(glob.glob("/run/media/sarkar/Elements/HMI/blos/*"))
-
-suit_file = "/run/media/sarkar/Elements/SUIT/sftp_drive/suit_data/level2fits/2025/04/19/normal_4k/SUT_T25_0589_000869_Lev2.0_2025-04-19T20.13.47.875_0971NB06.fits"
-hmi_file = "/run/media/sarkar/Elements/HMI/blos/hmi.m_45s.20250419_201330_TAI.2.magnetogram.fits"
-
-
-'''
-# Get mask with max_mu limit set (e.g. max_mu=0.90 to cut off near limb)
+filepairs= pair_suit_and_hmi(suit_files, hmi_files)
+suit_file=suit_files[0]
+hmi_file= filepairs[suit_file]
 mask, suit_masked, suit_map = get_suit_magnetic_mask(
     suit_file, 
     hmi_file, 
     threshold_G=50.0, 
-    min_mu=0.1, 
+    min_mu=0.2, 
     max_mu=1,  # Limits maximum mu threshold
     dilate_arcsec=2
 )
-
 # Render side-by-side visualization
-plot_suit_magnetic_mask(suit_map, suit_masked, mask)
+plot_suit_magnetic_mask(suit_map, suit_masked)
+
 '''
-
-def pair_suit_and_hmi(suit_files, hmi_files):
-    """Pairs each SUIT file with the closest HMI file by timestamp."""
-    
-    def parse_suit(f):
-        # Extracts YYYY-MM-DDTHH.MM.SS from filename
-        t_str = os.path.basename(f).split('_')[5][:19]
-        return datetime.strptime(t_str, "%Y-%m-%dT%H.%M.%S").replace(tzinfo=timezone.utc)
-
-    def parse_hmi(f):
-        # Extracts YYYYMMDD_HHMMSS from filename
-        t_str = os.path.basename(f).split('.')[2][:15]
-        return datetime.strptime(t_str, "%Y%m%d_%H%M%S").replace(tzinfo=timezone.utc)
-
-    hmi_times = [(parse_hmi(hf), hf) for hf in hmi_files]
-    pairs = {}
-
-    for sf in suit_files:
-        st = parse_suit(sf)
-        diff_sec, best_hmi = min((abs((ht - st).total_seconds()), hf) for ht, hf in hmi_times)
-        
-        if diff_sec > 3600:
-            print(f"Alert: Time gap > 1 hour ({diff_sec / 3600:.2f} hrs) for {os.path.basename(sf)}")
-            
-        pairs[sf] = best_hmi
-
-    return pairs
-
-filepairs= pair_suit_and_hmi(suit_files, hmi_files)
+for suit_file, hmi_file in filepairs.items():
+# Get mask with max_mu limit set (e.g. max_mu=0.90 to cut off near limb)
+    mask, suit_masked, suit_map = get_suit_magnetic_mask(
+        suit_file, 
+        hmi_file, 
+        threshold_G=50.0, 
+        min_mu=0.1, 
+        max_mu=1,  # Limits maximum mu threshold
+        dilate_arcsec=2
+    )
+# Render side-by-side visualization
+    plot_suit_magnetic_mask(suit_map, suit_masked, mask)
+'''
