@@ -7,6 +7,7 @@ from skimage.morphology import disk
 from astropy.convolution import convolve, Gaussian2DKernel
 import os, glob
 from datetime import datetime, timezone
+from concurrent.futures import ProcessPoolExecutor
 
 def pair_suit_and_hmi(suit_files, hmi_files):
     """Pairs each SUIT file with the closest HMI file by timestamp."""
@@ -39,26 +40,21 @@ def get_suit_magnetic_mask(suit_file, hmi_file, threshold_G=10.0, min_mu=0, max_
     """
     suit_map = sunpy.map.Map(suit_file)
     hmi_map = sunpy.map.Map(hmi_file)
-
     # Compute mu = cos(theta) on the HMI grid
     coords = sunpy.map.all_coordinates_from_map(hmi_map)
     r_rsun = np.sqrt(coords.Tx**2 + coords.Ty**2) / hmi_map.rsun_obs
     mu = np.sqrt(np.clip(1.0 - r_rsun**2, 0, 1))
-
     # Compute |B| / mu (masking out region outside valid mu bounds)
     with np.errstate(divide='ignore', invalid='ignore'):
         hmi_data= convolve(hmi_map.data, Gaussian2DKernel(x_stddev=5))
         b_radial = np.abs(hmi_data) / mu
         # Mask out limb region where mu < min_mu OR mu > max_mu
         b_radial[(mu < min_mu) | (mu > max_mu)] = 0
-
     # Reproject HMI radial magnetic field to SUIT grid
     b_radial_map = sunpy.map.Map(b_radial, hmi_map.meta)
     reprojected_b, _ = reproject_interp(b_radial_map, suit_map.wcs)
-
     # Generate base binary mask
     mask = (reprojected_b > threshold_G)
-
     # Dilate mask by requested arcseconds
     if dilate_arcsec > 0:
         pix_scale = suit_map.meta['CDELT1']# arcsec / pixel
@@ -67,7 +63,6 @@ def get_suit_magnetic_mask(suit_file, hmi_file, threshold_G=10.0, min_mu=0, max_
         mask = binary_dilation(mask, structure=struct_elem)
     suit_masked_data = np.where(mask == 0, suit_map.data, np.nan)
     return mask, suit_masked_data, suit_map
-
 
 def plot_suit_magnetic_mask(suit_map, suit_masked):
     """
@@ -80,35 +75,30 @@ def plot_suit_magnetic_mask(suit_map, suit_masked):
     plt.tight_layout()
     plt.show()
 
-
-
-suit_files= sorted(glob.glob("/run/media/sarkar/Elements/SUIT/sftp_drive/suit_data/level2fits/2025/04/*/normal_4k/*NB06*"))
-hmi_files= sorted(glob.glob("/run/media/sarkar/Elements/HMI/blos/*"))
-filepairs= pair_suit_and_hmi(suit_files, hmi_files)
-suit_file=suit_files[0]
-hmi_file= filepairs[suit_file]
-mask, suit_masked, suit_map = get_suit_magnetic_mask(
-    suit_file, 
-    hmi_file, 
-    threshold_G=50.0, 
-    min_mu=0.2, 
-    max_mu=1,  # Limits maximum mu threshold
-    dilate_arcsec=2
-)
-# Render side-by-side visualization
-plot_suit_magnetic_mask(suit_map, suit_masked)
-
-'''
-for suit_file, hmi_file in filepairs.items():
-# Get mask with max_mu limit set (e.g. max_mu=0.90 to cut off near limb)
+def run(filepair):
+    suit_file, hmi_file = filepair
+    proj_path= os.path.abspath("..")
+    savedir= os.path.join(proj_path, "data/interim")
+    SAVE=True
+    print (os.path.basename(suit_file), os.path.basename(hmi_file))
     mask, suit_masked, suit_map = get_suit_magnetic_mask(
         suit_file, 
         hmi_file, 
         threshold_G=50.0, 
         min_mu=0.1, 
         max_mu=1,  # Limits maximum mu threshold
-        dilate_arcsec=2
-    )
-# Render side-by-side visualization
-    plot_suit_magnetic_mask(suit_map, suit_masked, mask)
-'''
+        dilate_arcsec=2)
+    if SAVE:
+        savepath= os.path.join(savedir, os.path.basename(suit_file))
+        m= sunpy.map.Map(suit_file)
+        save_map= sunpy.map.Map(suit_masked, m.meta)
+        save_map.save(savepath, overwrite=True)
+
+
+if __name__=="__main__":
+    suit_files= sorted(glob.glob("/run/media/sarkar/Elements/SUIT/sftp_drive/suit_data/level2fits/2025/03/*/normal_4k/*NB06*"))
+    hmi_files= sorted(glob.glob("/run/media/sarkar/Elements/HMI/blos/*"))
+    filepairs= pair_suit_and_hmi(suit_files, hmi_files)
+    with ProcessPoolExecutor(max_workers=2) as executor:
+        executor.map(run, filepairs.items())
+# plot_suit_magnetic_mask(suit_map, suit_masked, mask)
