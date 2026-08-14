@@ -3,13 +3,8 @@ import matplotlib.pyplot as plt
 from scipy.ndimage import binary_dilation
 import sunpy.map
 from reproject import reproject_interp
-from skimage.morphology import disk
-from astropy.convolution import convolve, Gaussian2DKernel
-import os, glob
-from datetime import datetime, timezone
 
-
-def get_suit_magnetic_mask(suit_file, hmi_file, threshold_G=10.0, min_mu=0, max_mu=1, dilate_arcsec=0):
+def get_suit_magnetic_mask(suit_file, hmi_file, threshold_G=10.0, min_mu=0.1, max_mu=0.95, dilate_arcsec=1.0):
     """
     Creates and optionally dilates a binary mask for SUIT data based on HMI radial magnetic field (|B|/mu > threshold).
     Applies cutoffs to min_mu (div-by-zero protection) and max_mu (limb-effect rejection).
@@ -24,8 +19,7 @@ def get_suit_magnetic_mask(suit_file, hmi_file, threshold_G=10.0, min_mu=0, max_
 
     # Compute |B| / mu (masking out region outside valid mu bounds)
     with np.errstate(divide='ignore', invalid='ignore'):
-        hmi_data= convolve(hmi_map.data, Gaussian2DKernel(x_stddev=5))
-        b_radial = np.abs(hmi_data) / mu
+        b_radial = np.abs(hmi_map.data) / mu
         # Mask out limb region where mu < min_mu OR mu > max_mu
         b_radial[(mu < min_mu) | (mu > max_mu)] = 0
 
@@ -40,10 +34,15 @@ def get_suit_magnetic_mask(suit_file, hmi_file, threshold_G=10.0, min_mu=0, max_
     if dilate_arcsec > 0:
         pix_scale = suit_map.meta['CDELT1']# arcsec / pixel
         radius_pix = max(1, int(round(dilate_arcsec / pix_scale)))
-        struct_elem=disk(radius_pix)
+        
+        # Disk-shaped structuring element
+        y, x = np.ogrid[-radius_pix:radius_pix+1, -radius_pix:radius_pix+1]
+        struct_elem = x**2 + y**2 <= radius_pix**2
+        
         mask = binary_dilation(mask, structure=struct_elem)
 
-    suit_masked_data = np.where(mask == 1, suit_map.data, 0)
+    mask = mask.astype(np.uint8)
+    suit_masked_data = np.where(mask == 0, suit_map.data, 0)
 
     return mask, suit_masked_data, suit_map
 
@@ -73,54 +72,18 @@ def plot_suit_magnetic_mask(suit_map, suit_masked, mask):
 
 
 # Example Usage:
-
-suit_files= sorted(glob.glob("/run/media/sarkar/Elements/SUIT/sftp_drive/suit_data/level2fits/2025/04/*/normal_4k/*NB06*"))
-hmi_files= sorted(glob.glob("/run/media/sarkar/Elements/HMI/blos/*"))
-
 suit_file = "/run/media/sarkar/Elements/SUIT/sftp_drive/suit_data/level2fits/2025/04/19/normal_4k/SUT_T25_0589_000869_Lev2.0_2025-04-19T20.13.47.875_0971NB06.fits"
 hmi_file = "/run/media/sarkar/Elements/HMI/blos/hmi.m_45s.20250419_201330_TAI.2.magnetogram.fits"
 
-
-'''
 # Get mask with max_mu limit set (e.g. max_mu=0.90 to cut off near limb)
 mask, suit_masked, suit_map = get_suit_magnetic_mask(
     suit_file, 
     hmi_file, 
     threshold_G=50.0, 
-    min_mu=0.1, 
+    min_mu=0, 
     max_mu=1,  # Limits maximum mu threshold
-    dilate_arcsec=2
+    dilate_arcsec=1.5
 )
 
 # Render side-by-side visualization
 plot_suit_magnetic_mask(suit_map, suit_masked, mask)
-'''
-
-def pair_suit_and_hmi(suit_files, hmi_files):
-    """Pairs each SUIT file with the closest HMI file by timestamp."""
-    
-    def parse_suit(f):
-        # Extracts YYYY-MM-DDTHH.MM.SS from filename
-        t_str = os.path.basename(f).split('_')[5][:19]
-        return datetime.strptime(t_str, "%Y-%m-%dT%H.%M.%S").replace(tzinfo=timezone.utc)
-
-    def parse_hmi(f):
-        # Extracts YYYYMMDD_HHMMSS from filename
-        t_str = os.path.basename(f).split('.')[2][:15]
-        return datetime.strptime(t_str, "%Y%m%d_%H%M%S").replace(tzinfo=timezone.utc)
-
-    hmi_times = [(parse_hmi(hf), hf) for hf in hmi_files]
-    pairs = {}
-
-    for sf in suit_files:
-        st = parse_suit(sf)
-        diff_sec, best_hmi = min((abs((ht - st).total_seconds()), hf) for ht, hf in hmi_times)
-        
-        if diff_sec > 3600:
-            print(f"Alert: Time gap > 1 hour ({diff_sec / 3600:.2f} hrs) for {os.path.basename(sf)}")
-            
-        pairs[sf] = best_hmi
-
-    return pairs
-
-filepairs= pair_suit_and_hmi(suit_files, hmi_files)
