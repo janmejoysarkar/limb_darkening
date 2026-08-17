@@ -2,5 +2,5 @@ data
 products
 data/*
 products/*
-reports
+!reports/report.pptx
 reports/*
