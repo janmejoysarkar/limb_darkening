@@ -31,41 +31,37 @@ def dt_now():
     dt= datetime.now()
     return f"[{dt.strftime('%H:%M:%S')}]"
 
+def run(task):
+    data_file, FTR_NAME, calib_path, save_path, OVERWRITE= task
+    date= parse_suit(data_file)
+    calib_matches = sorted(glob.glob(os.path.join(calib_path, f"*{date}*{FTR_NAME}*.fits")))
+    if not calib_matches:
+        print (dt_now(), 'CAUTION! Calib File for', date, 'not found! --- Aborting process.' )
+        return
+    calib_file= calib_matches[0]
+    data, header= openfits(data_file)
+    calib_data, calib_header= openfits(calib_file)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        corrected_data= data/calib_data
+    header['COMMENT']= "Limb darkening and contamination corrected"
+    save_file= os.path.join(save_path, header['F_NAME'])
+    if not OVERWRITE and os.path.exists(save_file):
+        print(dt_now(), os.path.basename(save_file), "---> File already exists")
+        return
+    else:
+        fits.writeto(save_file, corrected_data, header=header, overwrite=OVERWRITE)
+        print(dt_now(), os.path.basename(save_file), "---> File saved!")
+        print(dt_now(), os.path.basename(calib_file), "---> Calib file")
+
+
 if __name__=="__main__":
     FTR_NAME='NB06'
-    OVERWRITE= True
+    OVERWRITE= False
     proj_path= os.path.abspath('..')
     data_path= '/run/media/sarkar/Elements/SUIT/sftp_drive/suit_data/level2fits/2025/*/*/normal_4k/'
     calib_path= os.path.join(proj_path, f'data/processed/')
     save_path= os.path.join(proj_path, 'products')
-
     data_files=sorted(glob.glob(os.path.join(data_path, f'*{FTR_NAME}*')))
-
-    i= 50
-    data_file= data_files[i]
-
-    date= parse_suit(data_file)
-    data, header= openfits(data_file)
-    calib_file = sorted(glob.glob(os.path.join(calib_path, f"*{date}*{FTR_NAME}*.fits")))[0]
-    calib_data, calib_header= openfits(calib_file)
-
-    
-    corrected_data= data/calib_data
-    header['COMMENT']= "Limb darkening and contamination corrected"
-    save_file= os.path.join(save_path, header['F_NAME'])
-    if not OVERWRITE and os.path.exists(save_file):
-        print(dt_now(), os.path.basename(save_file), "--- File already exists")
-        sys.exit()
-    else:
-        fits.writeto(save_file, corrected_data, header=header, overwrite=OVERWRITE)
-        print(dt_now(), os.path.basename(save_file), "---> File saved!")
-
-
-
-
-
-
-
-
-
-
+    tasks=[(data_file, FTR_NAME, calib_path, save_path, OVERWRITE) for data_file in data_files]
+    with ProcessPoolExecutor(max_workers=14) as executor:
+        executor.map(run, tasks)
