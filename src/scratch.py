@@ -41,22 +41,17 @@ def parse_suit(f):
     t_str = os.path.basename(f).split('_')[5][:10]
     return datetime.strptime(t_str, "%Y-%m-%d")
 
-if __name__=="__main__":
-    FTR_NAME='NB06'
-    SAVE_CALIB= True
-    OVERWRITE= True
-    n=1
-    proj_path= os.path.abspath('..')
-    data_path= os.path.join(proj_path, 'data/interim/')
-    data_list=sorted(glob.glob(os.path.join(data_path, '*NB06*'))) 
-    flat_path= os.path.join(proj_path, 'data/external/NB06_fft_flat.fits')
-    available_dates= sorted({parse_suit(f) for f in data_list})
-    i=0
+def get_files(available_dates, i):
+    """
+    DESCRIPTION: Get list of suitable filepaths based on target date.
+    INPUT: available dates list and target date index
+    RETURNS: List of files, date time obj for target date
+    """
     date= available_dates[i]
     if i==0:
         selected_dates= available_dates[:i+2*n+1]
-    elif i== len(available_dates):
-        selected_dates= available_dates[i-2*n-1:]
+    elif i== len(available_dates) or i==-1:
+        selected_dates= available_dates[i-2*n:]
     else:
         selected_dates= available_dates[i-n:i+n+1]
     files = []
@@ -64,12 +59,14 @@ if __name__=="__main__":
         date_str = d.strftime('%Y-%m-%d')
         matching_files = sorted(glob.glob(os.path.join(data_path, f"*{date_str}*{FTR_NAME}*")))
         files.extend(matching_files)
-    
+    return files, date
+
+def make_calib_frame(files, date, FTR_NAME, SAVE_CALIB=False, OVERWRITE=False):
     calib_frame_name= f"{date.strftime('%Y-%m-%d')}_{FTR_NAME}_calib.fits"
     savepath= os.path.join(proj_path, 'data/processed/', calib_frame_name)
     if not OVERWRITE and os.path.exists(savepath):
         print(calib_frame_name, "--- File already exists")
-        sys.exit(0)
+        return
     print(f'Using {[os.path.basename(file) for file in files]}')
     coeffs= coeffs_dict[FTR_NAME] #limb_dkr_coeff
     flat,_= openfits(flat_path)
@@ -89,3 +86,18 @@ if __name__=="__main__":
         header['COMMENT1']="Contamination correction file"
         fits.writeto(savepath, med, header=header, overwrite=True)
         print(calib_frame_name)
+
+if __name__=="__main__":
+    FTR_NAME='NB06'
+    SAVE_CALIB= True
+    OVERWRITE= False
+    n=1
+    proj_path= os.path.abspath('..')
+    data_path= os.path.join(proj_path, 'data/interim/')
+    data_list=sorted(glob.glob(os.path.join(data_path, '*NB06*'))) 
+    flat_path= os.path.join(proj_path, 'data/external/NB06_fft_flat.fits')
+    available_dates= sorted({parse_suit(f) for f in data_list})
+    for i in range(len(available_dates)):
+        selected_files, date= get_files(available_dates, i)
+        make_calib_frame(selected_files, date, FTR_NAME, SAVE_CALIB, OVERWRITE)
+
