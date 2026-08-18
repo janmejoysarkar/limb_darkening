@@ -33,13 +33,15 @@ def run(file):
     plot(img_data, filename, savepath, VMN=0, VMX=2.5e4)
 
 # GLOBAL #
-proj_path= os.path.abspath('../..')
 savepath= '/home/sarkar/Documents/'
-datapath= os.path.join(proj_path, 'data/interim/*.fits')
+VMN, VMX= 0.9, 1.1
 
 if __name__=="__main__":
-    files= sorted(glob.glob(datapath))[28:30]
-    with ProcessPoolExecutor(max_workers=2) as executor:
+    proj_path= os.path.abspath('../..')
+    datapath= os.path.join(proj_path, 'products/*.fits')
+    files= sorted(glob.glob(datapath))
+    
+    with ProcessPoolExecutor(max_workers=14) as executor:
         executor.map(run, files)
         
 
