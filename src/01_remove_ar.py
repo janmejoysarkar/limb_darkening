@@ -93,7 +93,8 @@ def run(filepair):
     savedir= os.path.join(proj_path, "data/interim")
     savepath= os.path.join(savedir, os.path.basename(suit_file))
     # Skip processing immediately if the file already exists
-    if os.path.exists(savepath):
+    OVERWRITE=True
+    if not OVERWRITE and os.path.exists(savepath):
         print(f"Skipping {os.path.basename(suit_file)} - already exists.")
         return
     SAVE=True
@@ -101,10 +102,10 @@ def run(filepair):
     mask, suit_masked, suit_map = get_suit_magnetic_mask(
         suit_file, 
         hmi_file, 
-        threshold_G=70.0, 
+        threshold_G=75.0, 
         min_mu=0.1, 
         max_mu=1,  # Limits maximum mu threshold
-        dilate_arcsec=7)
+        dilate_arcsec=10)
     if SAVE:
         m= sunpy.map.Map(suit_file)
         save_map= sunpy.map.Map(suit_masked, m.meta)
