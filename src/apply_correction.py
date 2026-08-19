@@ -16,6 +16,8 @@ from ld_profiles import coeffs_dict
 from datetime import datetime, timedelta
 from concurrent.futures import ProcessPoolExecutor
 from sunpy.map.maputils import all_coordinates_from_map, coordinate_is_on_solar_disk
+import config
+from config import aplCorr as c
 
 def openfits(file):
     with fits.open(file) as hdu:
@@ -73,18 +75,10 @@ def run(task):
     corrected_img, h= process_img(data_file, calib_file, flat_path, save_path, FTR_NAME, LD_CORR=LD_CORR)
     fits.writeto(save_file, corrected_img, header=h, overwrite=OVERWRITE)
     print(dt_now(), os.path.basename(calib_file), os.path.basename(save_file), "---> File saved!")
-    
-if __name__=="__main__":
-    FTR_NAME='NB06'
-    OVERWRITE= False
-    LD_CORR= True
-    proj_path= os.path.abspath('..')
-    data_path= '/run/media/sarkar/Elements/SUIT/sftp_drive/suit_data/level2fits/2025/*/*/normal_4k/'
-    calib_path= os.path.join(proj_path, f'data/processed/')
-    flat_path= os.path.join(proj_path, 'data/external/NB06_fft_flat.fits')
-    save_path= os.path.join(proj_path, 'products')
-    data_files=sorted(glob.glob(os.path.join(data_path, f'*{FTR_NAME}*')))
-
-    tasks=[(data_file, FTR_NAME, calib_path, flat_path, save_path, LD_CORR, OVERWRITE) for data_file in data_files]
-    with ProcessPoolExecutor(max_workers=14) as executor:
+   
+if __name__=='__main__':
+    data_files=sorted(glob.glob(os.path.join(c.data_path, f'*{config.FTR_NAME}*')))
+    tasks=[(data_file, config.FTR_NAME, c.calib_path, c.flat_path, c.save_path, c.LD_CORR, c.OVERWRITE) for data_file in data_files]
+    with ProcessPoolExecutor(max_workers=c.max_workers) as executor:
         executor.map(run, tasks)
+        

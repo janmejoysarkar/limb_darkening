@@ -19,6 +19,8 @@ from ld_profiles import coeffs_dict
 from datetime import datetime, timedelta
 from concurrent.futures import ProcessPoolExecutor
 from sunpy.map.maputils import all_coordinates_from_map, coordinate_is_on_solar_disk
+import config
+from config import mkCalib as c
 
 def limb_darkening_mu(shape, center, radius, coeffs):
     ny, nx = shape
@@ -41,7 +43,11 @@ def parse_suit(f):
     t_str = os.path.basename(f).split('_')[5][:10]
     return datetime.strptime(t_str, "%Y-%m-%d")
 
-def get_files(available_dates, i):
+def dt_now():
+    dt= datetime.now()
+    return f"[{dt.strftime('%H:%M:%S')}]"
+
+def get_files(available_dates, i, data_path, FTR_NAME):
     """
     DESCRIPTION: Get list of suitable filepaths based on target date.
     INPUT: available dates list and target date index
@@ -61,7 +67,7 @@ def get_files(available_dates, i):
         files.extend(matching_files)
     return files, date
 
-def make_calib_frame(files, date, FTR_NAME, SAVE_CALIB=False, OVERWRITE=False):
+def make_calib_frame(files, date, flat_path, FTR_NAME, SAVE_CALIB=False, OVERWRITE=False):
     calib_frame_name= f"{date.strftime('%Y-%m-%d')}_{FTR_NAME}_calib.fits"
     savepath= os.path.join(proj_path, 'data/processed/', calib_frame_name)
     if not OVERWRITE and os.path.exists(savepath):
@@ -85,19 +91,14 @@ def make_calib_frame(files, date, FTR_NAME, SAVE_CALIB=False, OVERWRITE=False):
         header['F_NAME']= FTR_NAME
         header['COMMENT1']="Contamination correction file"
         fits.writeto(savepath, med, header=header, overwrite=True)
-        print(calib_frame_name)
+        print(dt_now(), calib_frame_name)
 
-if __name__=="__main__":
-    FTR_NAME='NB06'
-    SAVE_CALIB= True
-    OVERWRITE= False
-    n=1
-    proj_path= os.path.abspath('..')
-    data_path= os.path.join(proj_path, 'data/interim/')
-    data_list=sorted(glob.glob(os.path.join(data_path, '*NB06*'))) 
-    flat_path= os.path.join(proj_path, 'data/external/NB06_fft_flat.fits')
+if __name__=='__main__':
+    proj_path= config.proj_path 
+    n=c.n
+    data_list=sorted(glob.glob(os.path.join(c.data_path)))
     available_dates= sorted({parse_suit(f) for f in data_list})
     for i in range(len(available_dates)):
-        selected_files, date= get_files(available_dates, i)
-        make_calib_frame(selected_files, date, FTR_NAME, SAVE_CALIB, OVERWRITE)
+        selected_files, date= get_files(available_dates, i, c.data_path, config.FTR_NAME)
+        make_calib_frame(selected_files, date, c.flat_path, config.FTR_NAME, c.SAVE_CALIB, c.OVERWRITE)
 

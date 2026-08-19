@@ -20,6 +20,8 @@ from astropy.convolution import convolve, Gaussian2DKernel
 import os, glob
 from datetime import datetime, timezone
 from concurrent.futures import ProcessPoolExecutor
+import config
+import config.arMask as c
 
 def pair_suit_and_hmi(suit_files, hmi_files):
     """Pairs each SUIT file with the closest HMI file by timestamp."""
@@ -89,33 +91,28 @@ def plot_suit_magnetic_mask(suit_map, suit_masked):
 
 def run(filepair):
     suit_file, hmi_file = filepair
-    proj_path= os.path.abspath("..")
-    savedir= os.path.join(proj_path, "data/interim")
-    savepath= os.path.join(savedir, os.path.basename(suit_file))
+    savepath= os.path.join(c.savedir, os.path.basename(suit_file))
     # Skip processing immediately if the file already exists
-    OVERWRITE=True
-    if not OVERWRITE and os.path.exists(savepath):
+    if not c.OVERWRITE and os.path.exists(savepath):
         print(f"Skipping {os.path.basename(suit_file)} - already exists.")
         return
-    SAVE=True
     print (os.path.basename(suit_file), os.path.basename(hmi_file))
     mask, suit_masked, suit_map = get_suit_magnetic_mask(
         suit_file, 
         hmi_file, 
-        threshold_G=75.0, 
-        min_mu=0.1, 
-        max_mu=1,  # Limits maximum mu threshold
-        dilate_arcsec=10)
-    if SAVE:
+        c.threshold_G, 
+        c.min_mu, 
+        c.max_mu,  # Limits maximum mu threshold
+        c.dilate_arcsec)
+    if c.SAVE:
         m= sunpy.map.Map(suit_file)
         save_map= sunpy.map.Map(suit_masked, m.meta)
         save_map.save(savepath, overwrite=True)
 
-
-if __name__=="__main__":
-    suit_files= sorted(glob.glob("/run/media/sarkar/Elements/SUIT/sftp_drive/suit_data/level2fits/2025/*/*/normal_4k/*NB06*"))
-    hmi_files= sorted(glob.glob("/run/media/sarkar/Elements/HMI/blos/*"))
+if __name__=='__main__':
+    suit_files= sorted(glob.glob(c.suit_filepath))
+    hmi_files= sorted(glob.glob(c.hmi_filepath))
     filepairs= pair_suit_and_hmi(suit_files, hmi_files)
-    with ProcessPoolExecutor(max_workers=8) as executor:
+    with ProcessPoolExecutor(max_workers=c.max_workers) as executor:
         executor.map(run, filepairs.items())
-# plot_suit_magnetic_mask(suit_map, suit_masked)
+
