@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Fri Aug 14 05:58:31 PM CEST 2026
+@author: sarkar
+@hostname: SARJA-TL26
+
+DESCRIPTION
+To remove active regions from SUIT images using HMI as reference.
+"""
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.ndimage import binary_dilation
+import sunpy.map
+from reproject import reproject_interp
+from skimage.morphology import disk
+from astropy.convolution import convolve, Gaussian2DKernel
+import os, glob
+from datetime import datetime, timezone
+from concurrent.futures import ProcessPoolExecutor
+
+def pair_suit_and_hmi(suit_files, hmi_files):
+    """Pairs each SUIT file with the closest HMI file by timestamp."""
+    
+    def parse_suit(f):
+        # Extracts YYYY-MM-DDTHH.MM.SS from filename
+        t_str = os.path.basename(f).split('_')[5][:19]
+        return datetime.strptime(t_str, "%Y-%m-%dT%H.%M.%S").replace(tzinfo=timezone.utc)
+
+    def parse_hmi(f):
+        # Extracts YYYYMMDD_HHMMSS from filename
+        t_str = os.path.basename(f).split('.')[2][:15]
+        return datetime.strptime(t_str, "%Y%m%d_%H%M%S").replace(tzinfo=timezone.utc)
+
+    hmi_times = [(parse_hmi(hf), hf) for hf in hmi_files]
+    pairs = {}
+
+    for sf in suit_files:
+        st = parse_suit(sf)
+        diff_sec, best_hmi = min((abs((ht - st).total_seconds()), hf) for ht, hf in hmi_times)
+        if diff_sec > 3600:
+            print(f"Alert: Time gap > 1 hour ({diff_sec / 3600:.2f} hrs) for {os.path.basename(sf)}")
+        pairs[sf] = best_hmi
+    return pairs
+
+def get_suit_magnetic_mask(suit_file, hmi_file, threshold_G=10.0, min_mu=0, max_mu=1, dilate_arcsec=0):
+    """
+    Creates and optionally dilates a binary mask for SUIT data based on HMI radial magnetic field (|B|/mu > threshold).
+    Applies cutoffs to min_mu (div-by-zero protection) and max_mu (limb-effect rejection).
+    """
+    suit_map = sunpy.map.Map(suit_file)
+    hmi_map = sunpy.map.Map(hmi_file)
+    # Compute mu = cos(theta) on the HMI grid
+    coords = sunpy.map.all_coordinates_from_map(hmi_map)
+    r_rsun = np.sqrt(coords.Tx**2 + coords.Ty**2) / hmi_map.rsun_obs
+    mu = np.sqrt(np.clip(1.0 - r_rsun**2, 0, 1))
+    # Compute |B| / mu (masking out region outside valid mu bounds)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        hmi_data= convolve(hmi_map.data, Gaussian2DKernel(x_stddev=5))
+        b_radial = np.abs(hmi_data) / mu
+        # Mask out limb region where mu < min_mu OR mu > max_mu
+        b_radial[(mu < min_mu) | (mu > max_mu)] = 0
+    # Reproject HMI radial magnetic field to SUIT grid
+    b_radial_map = sunpy.map.Map(b_radial, hmi_map.meta)
+    reprojected_b, _ = reproject_interp(b_radial_map, suit_map.wcs)
+    # Generate base binary mask
+    mask = (reprojected_b > threshold_G)
+    # Dilate mask by requested arcseconds
+    if dilate_arcsec > 0:
+        pix_scale = suit_map.meta['CDELT1']# arcsec / pixel
+        radius_pix = max(1, int(round(dilate_arcsec / pix_scale)))
+        struct_elem=disk(radius_pix)
+        mask = binary_dilation(mask, structure=struct_elem)
+    suit_masked_data = np.where(mask == 0, suit_map.data, np.nan)
+    return mask, suit_masked_data, suit_map
+
+def plot_suit_magnetic_mask(suit_map, suit_masked):
+    """
+    Plots SUIT map, masked data, and mask contour overlay sharing X and Y axes.
+    """
+    fig, ax= plt.subplots(1,2)
+    ax=ax.ravel()
+    ax[0].imshow(suit_map.data, origin='lower')
+    ax[1].imshow(suit_masked, origin='lower')
+    plt.tight_layout()
+    plt.show()
+
+def run(filepair):
+    suit_file, hmi_file = filepair
+    proj_path= os.path.abspath("..")
+    savedir= os.path.join(proj_path, "data/interim")
+    savepath= os.path.join(savedir, os.path.basename(suit_file))
+    # Skip processing immediately if the file already exists
+    if os.path.exists(savepath):
+        print(f"Skipping {os.path.basename(suit_file)} - already exists.")
+        return
+    SAVE=True
+    print (os.path.basename(suit_file), os.path.basename(hmi_file))
+    mask, suit_masked, suit_map = get_suit_magnetic_mask(
+        suit_file, 
+        hmi_file, 
+        threshold_G=70.0, 
+        min_mu=0.1, 
+        max_mu=1,  # Limits maximum mu threshold
+        dilate_arcsec=7)
+    if SAVE:
+        m= sunpy.map.Map(suit_file)
+        save_map= sunpy.map.Map(suit_masked, m.meta)
+        save_map.save(savepath, overwrite=True)
+
+
+if __name__=="__main__":
+    suit_files= sorted(glob.glob("/run/media/sarkar/Elements/SUIT/sftp_drive/suit_data/level2fits/2025/*/*/normal_4k/*NB06*"))
+    hmi_files= sorted(glob.glob("/run/media/sarkar/Elements/HMI/blos/*"))
+    filepairs= pair_suit_and_hmi(suit_files, hmi_files)
+    with ProcessPoolExecutor(max_workers=8) as executor:
+        executor.map(run, filepairs.items())
+# plot_suit_magnetic_mask(suit_map, suit_masked)
