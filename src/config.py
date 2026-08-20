@@ -8,16 +8,16 @@ class arMask:
 # --- AR_MASKING ---
     FTR_NAME= FTR_NAME
     proj_path=proj_path
-    suit_filepath= f"/run/media/sarkar/Elements/SUIT/sftp_drive/suit_data/level2fits/2025/*/*/normal_4k/*{FTR_NAME}*"
+    suit_filepath= f"/run/media/sarkar/Elements/SUIT/sftp_drive/suit_data/level2fits/2025/04/*/normal_4k/*{FTR_NAME}*"
     hmi_filepath= "/run/media/sarkar/Elements/HMI/blos/*"
     savedir= os.path.join(proj_path, "data/interim")
     threshold_G = 75.0
-    min_mu=0.1
+    min_mu=0.3
     max_mu=1  # Limits maximum mu threshold
-    dilate_arcsec=10
-    max_workers=8
+    dilate_arcsec=7
+    max_workers=6
     OVERWRITE=False
-    SAVE=False
+    SAVE=True
 
 class mkCalib:
 # --- RUN_MAKE_CALIB ---

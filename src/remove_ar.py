@@ -11,7 +11,6 @@ To remove active regions from SUIT images using HMI as reference.
 """
 
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.ndimage import binary_dilation
 import sunpy.map
 from reproject import reproject_interp
@@ -19,9 +18,10 @@ from skimage.morphology import disk
 from astropy.convolution import convolve, Gaussian2DKernel
 import os, glob
 from datetime import datetime, timezone
+from sunpy.physics.differential_rotation import differential_rotate
 from concurrent.futures import ProcessPoolExecutor
 import config
-import config.arMask as c
+from config import arMask as c
 
 def pair_suit_and_hmi(suit_files, hmi_files):
     """Pairs each SUIT file with the closest HMI file by timestamp."""
@@ -58,36 +58,32 @@ def get_suit_magnetic_mask(suit_file, hmi_file, threshold_G=10.0, min_mu=0, max_
     coords = sunpy.map.all_coordinates_from_map(hmi_map)
     r_rsun = np.sqrt(coords.Tx**2 + coords.Ty**2) / hmi_map.rsun_obs
     mu = np.sqrt(np.clip(1.0 - r_rsun**2, 0, 1))
-    # Compute |B| / mu (masking out region outside valid mu bounds)
+    # Calculate mu corrected B
     with np.errstate(divide='ignore', invalid='ignore'):
-        hmi_data= convolve(hmi_map.data, Gaussian2DKernel(x_stddev=5))
-        b_radial = np.abs(hmi_data) / mu
+        b_radial = np.abs(hmi_map.data) / mu
         # Mask out limb region where mu < min_mu OR mu > max_mu
-        b_radial[(mu < min_mu) | (mu > max_mu)] = 0
-    # Reproject HMI radial magnetic field to SUIT grid
-    b_radial_map = sunpy.map.Map(b_radial, hmi_map.meta)
-    reprojected_b, _ = reproject_interp(b_radial_map, suit_map.wcs)
-    # Generate base binary mask
-    mask = (reprojected_b > threshold_G)
+        b_radial[(mu < min_mu) | (mu > max_mu)] = np.nan
+        del mu
+        b_radial_map = sunpy.map.Map(b_radial, hmi_map.meta)
+        del hmi_map
+        del b_radial
+        # Differential rotation correction
+        b_radial_map = differential_rotate(b_radial_map, time=suit_map.date)
+        # Reproject HMI radial magnetic field to SUIT grid
+        reprojected_b, _ = reproject_interp(b_radial_map, suit_map.wcs)
+        del _
+        del b_radial_map
+        reprojected_b= convolve(reprojected_b, Gaussian2DKernel(x_stddev=5))
+        mask = (reprojected_b > threshold_G)
+        del reprojected_b
     # Dilate mask by requested arcseconds
-    if dilate_arcsec > 0:
-        pix_scale = suit_map.meta['CDELT1']# arcsec / pixel
-        radius_pix = max(1, int(round(dilate_arcsec / pix_scale)))
+    pix_scale = suit_map.meta['CDELT1']# arcsec / pixel
+    radius_pix = int(round(dilate_arcsec / pix_scale))
+    if radius_pix > 0:
         struct_elem=disk(radius_pix)
         mask = binary_dilation(mask, structure=struct_elem)
     suit_masked_data = np.where(mask == 0, suit_map.data, np.nan)
     return mask, suit_masked_data, suit_map
-
-def plot_suit_magnetic_mask(suit_map, suit_masked):
-    """
-    Plots SUIT map, masked data, and mask contour overlay sharing X and Y axes.
-    """
-    fig, ax= plt.subplots(1,2)
-    ax=ax.ravel()
-    ax[0].imshow(suit_map.data, origin='lower')
-    ax[1].imshow(suit_masked, origin='lower')
-    plt.tight_layout()
-    plt.show()
 
 def run(filepair):
     suit_file, hmi_file = filepair
@@ -96,7 +92,7 @@ def run(filepair):
     if not c.OVERWRITE and os.path.exists(savepath):
         print(f"Skipping {os.path.basename(suit_file)} - already exists.")
         return
-    print (os.path.basename(suit_file), os.path.basename(hmi_file))
+    print (os.path.basename(suit_file), os.path.basename(hmi_file), "---> Files loaded")
     mask, suit_masked, suit_map = get_suit_magnetic_mask(
         suit_file, 
         hmi_file, 
@@ -105,9 +101,11 @@ def run(filepair):
         c.max_mu,  # Limits maximum mu threshold
         c.dilate_arcsec)
     if c.SAVE:
+        print('File processed')
         m= sunpy.map.Map(suit_file)
         save_map= sunpy.map.Map(suit_masked, m.meta)
         save_map.save(savepath, overwrite=True)
+        print (os.path.basename(suit_file), "---> File saved")
 
 if __name__=='__main__':
     suit_files= sorted(glob.glob(c.suit_filepath))
