@@ -67,13 +67,13 @@ def get_files(available_dates, i, data_path, FTR_NAME):
         files.extend(matching_files)
     return files, date
 
-def make_calib_frame(files, date, flat_path, FTR_NAME, SAVE_CALIB=False, OVERWRITE=False):
+def make_calib_frame(files, date, flat_path, save_path, FTR_NAME, SAVE_CALIB=False, OVERWRITE=False):
     calib_frame_name= f"{date.strftime('%Y-%m-%d')}_{FTR_NAME}_calib.fits"
-    savepath= os.path.join(proj_path, 'data/processed/', calib_frame_name)
+    savepath= os.path.join(save_path, calib_frame_name)
     if not OVERWRITE and os.path.exists(savepath):
-        print(calib_frame_name, "--- File already exists")
+        print(dt_now(), calib_frame_name, "--- File already exists")
         return
-    print(f'Using {[os.path.basename(file) for file in files]}')
+    print(dt_now(), f'Using {[os.path.basename(file) for file in files]}')
     coeffs= coeffs_dict[FTR_NAME] #limb_dkr_coeff
     flat,_= openfits(flat_path)
     seq = Map(files, sequence=True)
@@ -91,14 +91,14 @@ def make_calib_frame(files, date, flat_path, FTR_NAME, SAVE_CALIB=False, OVERWRI
         header['F_NAME']= FTR_NAME
         header['COMMENT1']="Contamination correction file"
         fits.writeto(savepath, med, header=header, overwrite=True)
-        print(dt_now(), calib_frame_name)
+        print(dt_now(), calib_frame_name, "---> file saved!")
 
 if __name__=='__main__':
     proj_path= config.proj_path 
     n=c.n
-    data_list=sorted(glob.glob(os.path.join(c.data_path)))
+    data_list=sorted(glob.glob(os.path.join(c.data_path, f'*{config.FTR_NAME}*')))
     available_dates= sorted({parse_suit(f) for f in data_list})
     for i in range(len(available_dates)):
         selected_files, date= get_files(available_dates, i, c.data_path, config.FTR_NAME)
-        make_calib_frame(selected_files, date, c.flat_path, config.FTR_NAME, c.SAVE_CALIB, c.OVERWRITE)
+        make_calib_frame(selected_files, date, c.flat_path, c.savepath, config.FTR_NAME, c.SAVE_CALIB, c.OVERWRITE)
 

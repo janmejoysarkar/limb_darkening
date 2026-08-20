@@ -23,27 +23,27 @@ from concurrent.futures import ProcessPoolExecutor
 import config
 from config import arMask as c
 
+def dt_now():
+    dt= datetime.now()
+    return f"[{dt.strftime('%H:%M:%S')}]"
+
 def pair_suit_and_hmi(suit_files, hmi_files):
     """Pairs each SUIT file with the closest HMI file by timestamp."""
-    
     def parse_suit(f):
         # Extracts YYYY-MM-DDTHH.MM.SS from filename
         t_str = os.path.basename(f).split('_')[5][:19]
         return datetime.strptime(t_str, "%Y-%m-%dT%H.%M.%S").replace(tzinfo=timezone.utc)
-
     def parse_hmi(f):
         # Extracts YYYYMMDD_HHMMSS from filename
         t_str = os.path.basename(f).split('.')[2][:15]
         return datetime.strptime(t_str, "%Y%m%d_%H%M%S").replace(tzinfo=timezone.utc)
-
     hmi_times = [(parse_hmi(hf), hf) for hf in hmi_files]
     pairs = {}
-
     for sf in suit_files:
         st = parse_suit(sf)
         diff_sec, best_hmi = min((abs((ht - st).total_seconds()), hf) for ht, hf in hmi_times)
-        if diff_sec > 3600:
-            print(f"Alert: Time gap > 1 hour ({diff_sec / 3600:.2f} hrs) for {os.path.basename(sf)}")
+        if diff_sec > 1800:
+            print(f"Alert: Time gap ({diff_sec / 3600:.2f} hrs) for {os.path.basename(sf)}")
         pairs[sf] = best_hmi
     return pairs
 
@@ -54,6 +54,7 @@ def get_suit_magnetic_mask(suit_file, hmi_file, threshold_G=10.0, min_mu=0, max_
     """
     suit_map = sunpy.map.Map(suit_file)
     hmi_map = sunpy.map.Map(hmi_file)
+    print (dt_now(), os.path.basename(suit_file), os.path.basename(hmi_file), "---> Files loaded")
     # Compute mu = cos(theta) on the HMI grid
     coords = sunpy.map.all_coordinates_from_map(hmi_map)
     r_rsun = np.sqrt(coords.Tx**2 + coords.Ty**2) / hmi_map.rsun_obs
@@ -61,21 +62,24 @@ def get_suit_magnetic_mask(suit_file, hmi_file, threshold_G=10.0, min_mu=0, max_
     # Calculate mu corrected B
     with np.errstate(divide='ignore', invalid='ignore'):
         b_radial = np.abs(hmi_map.data) / mu
-        # Mask out limb region where mu < min_mu OR mu > max_mu
-        b_radial[(mu < min_mu) | (mu > max_mu)] = np.nan
-        del mu
-        b_radial_map = sunpy.map.Map(b_radial, hmi_map.meta)
-        del hmi_map
-        del b_radial
+    # Mask out limb region where mu < min_mu OR mu > max_mu
+    b_radial[(mu < min_mu) | (mu > max_mu)] = np.nan
+    del mu
+    b_radial_map = sunpy.map.Map(b_radial, hmi_map.meta)
+    del hmi_map
+    del b_radial
+    time_diff= abs((suit_map.date-b_radial_map.date).sec)
+    if time_diff > 1800:
         # Differential rotation correction
+        print(dt_now(), 'Time diff (s):', round(time_diff,0), '---> Applying diff rot correction')
         b_radial_map = differential_rotate(b_radial_map, time=suit_map.date)
-        # Reproject HMI radial magnetic field to SUIT grid
-        reprojected_b, _ = reproject_interp(b_radial_map, suit_map.wcs)
-        del _
-        del b_radial_map
-        reprojected_b= convolve(reprojected_b, Gaussian2DKernel(x_stddev=5))
-        mask = (reprojected_b > threshold_G)
-        del reprojected_b
+    # Reproject HMI radial magnetic field to SUIT grid
+    reprojected_b, _ = reproject_interp(b_radial_map, suit_map.wcs)
+    del _
+    del b_radial_map
+    reprojected_b= convolve(reprojected_b, Gaussian2DKernel(x_stddev=5))
+    mask = (reprojected_b > threshold_G)
+    del reprojected_b
     # Dilate mask by requested arcseconds
     pix_scale = suit_map.meta['CDELT1']# arcsec / pixel
     radius_pix = int(round(dilate_arcsec / pix_scale))
@@ -90,9 +94,8 @@ def run(filepair):
     savepath= os.path.join(c.savedir, os.path.basename(suit_file))
     # Skip processing immediately if the file already exists
     if not c.OVERWRITE and os.path.exists(savepath):
-        print(f"Skipping {os.path.basename(suit_file)} - already exists.")
+        print(dt_now(), f"Skipping {os.path.basename(suit_file)} - already exists.")
         return
-    print (os.path.basename(suit_file), os.path.basename(hmi_file), "---> Files loaded")
     mask, suit_masked, suit_map = get_suit_magnetic_mask(
         suit_file, 
         hmi_file, 
@@ -101,11 +104,10 @@ def run(filepair):
         c.max_mu,  # Limits maximum mu threshold
         c.dilate_arcsec)
     if c.SAVE:
-        print('File processed')
         m= sunpy.map.Map(suit_file)
         save_map= sunpy.map.Map(suit_masked, m.meta)
         save_map.save(savepath, overwrite=True)
-        print (os.path.basename(suit_file), "---> File saved")
+        print (dt_now(), os.path.basename(suit_file), "---> File saved")
 
 if __name__=='__main__':
     suit_files= sorted(glob.glob(c.suit_filepath))

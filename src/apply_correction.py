@@ -53,7 +53,8 @@ def process_img(data_file, calib_file, flat_path, save_path, FTR_NAME, LD_CORR=T
     flat_data, _= openfits(flat_path)
     with np.errstate(divide='ignore', invalid='ignore'):
         if LD_CORR:
-            ld= limb_darkening_mu((h['NAXIS2'],h['NAXIS1']), (h['CRPIX1'], h['CRPIX2']), h['R_SUN'], coeffs=coeffs_dict[FTR_NAME])
+            ld= limb_darkening_mu((h['NAXIS2'],h['NAXIS1']), (h['CRPIX1'], h['CRPIX2']),
+                                  h['R_SUN'], coeffs=coeffs_dict[FTR_NAME])
             corrected_data= data/(calib_data*ld*flat_data)
         else:
             corrected_data= data/(calib_data*flat_data)
