@@ -8,7 +8,7 @@ class arMask:
 # --- AR_MASKING ---
     FTR_NAME= FTR_NAME
     proj_path=proj_path
-    suit_filepath= f"/run/media/sarkar/Elements/SUIT/sftp_drive/suit_data/level2fits/2025/*/*/normal_4k/*{FTR_NAME}*"
+    data_path= "/run/media/sarkar/Elements/SUIT/pradan1.issdc.gov.in/al1/protected/downloadData/suit/level1/2025/*/*/"
     hmi_filepath= "/run/media/sarkar/Elements/HMI/blos/*"
     savedir= os.path.join(proj_path, "data/interim")
     threshold_G = 75.0
@@ -33,7 +33,7 @@ class aplCorr:
     max_workers=12
     OVERWRITE= False
     LD_CORR= True
-    data_path= '/run/media/sarkar/Elements/SUIT/sftp_drive/suit_data/level2fits/2025/*/*/normal_4k/'
+    data_path= "/run/media/sarkar/Elements/SUIT/pradan1.issdc.gov.in/al1/protected/downloadData/suit/level1/2025/*/*/"
     calib_path= os.path.join(proj_path, f'data/processed/')
     flat_path= os.path.join(proj_path, f'data/external/{FTR_NAME}_fft_flat.fits')
     save_path= os.path.join(proj_path, 'products')

@@ -110,7 +110,7 @@ def run(filepair):
         print (dt_now(), os.path.basename(suit_file), "---> File saved")
 
 if __name__=='__main__':
-    suit_files= sorted(glob.glob(c.suit_filepath))
+    suit_files=sorted(glob.glob(os.path.join(c.data_path, f'*{config.FTR_NAME}*')))
     hmi_files= sorted(glob.glob(c.hmi_filepath))
     filepairs= pair_suit_and_hmi(suit_files, hmi_files)
     with ProcessPoolExecutor(max_workers=c.max_workers) as executor:
