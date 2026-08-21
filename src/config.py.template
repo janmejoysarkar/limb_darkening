@@ -1,4 +1,4 @@
-import os, glob
+import os
 
 # Global variables
 FTR_NAME= 'NB06'
