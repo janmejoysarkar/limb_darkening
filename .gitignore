@@ -3,3 +3,4 @@ products
 data/*
 products/*
 reports/*
+src/config.py
