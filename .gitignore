@@ -4,3 +4,4 @@ data/*
 products/*
 reports/*
 src/config.py
+src/scratch.py
