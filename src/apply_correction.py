@@ -50,14 +50,18 @@ def limb_darkening_mu(shape, center, radius, coeffs):
 def process_img(data_file, calib_file, flat_path, save_path, FTR_NAME, LD_CORR=True):
     data, h= openfits(data_file)
     calib_data, calib_header= openfits(calib_file)
-    flat_data, _= openfits(flat_path)
+    check_flat= glob.glob(flat_path)
     with np.errstate(divide='ignore', invalid='ignore'):
+        corrected_data= data/calib_data
         if LD_CORR:
-            ld= limb_darkening_mu((h['NAXIS2'],h['NAXIS1']), (h['CRPIX1'], h['CRPIX2']),
-                                  h['R_SUN'], coeffs=coeffs_dict[FTR_NAME])
-            corrected_data= data/(calib_data*ld*flat_data)
-        else:
-            corrected_data= data/(calib_data*flat_data)
+            ld= limb_darkening_mu((h['NAXIS2'],h['NAXIS1']),
+                                  (h['CRPIX1'], h['CRPIX2']),
+                                  h['R_SUN'],
+                                  coeffs=coeffs_dict[FTR_NAME])
+            corrected_data/= ld
+        if check_flat:
+            flat_data, _= openfits(flat_path)
+            corrected_data/= flat_data
     h['COMMENT']= "Limb darkening and contamination corrected"
     return corrected_data, h
 

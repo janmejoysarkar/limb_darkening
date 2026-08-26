@@ -75,14 +75,19 @@ def make_calib_frame(files, date, flat_path, save_path, FTR_NAME, SAVE_CALIB=Fal
         return
     print(dt_now(), f'Using {[os.path.basename(file) for file in files]}')
     coeffs= coeffs_dict[FTR_NAME] #limb_dkr_coeff
-    flat,_= openfits(flat_path)
+    check_flat= glob.glob(flat_path)
+    if check_flat:
+        flat,_= openfits(flat_path)
     seq = Map(files, sequence=True)
     datas=[]
     for m in seq:
         h= m.meta
         ld= limb_darkening_mu((h['NAXIS1'],h['NAXIS2']), (h['CRPIX1'], h['CRPIX2']), h['R_SUN'], coeffs=coeffs)
         data= np.nan_to_num(m.data, nan=0.0)
-        corrected_data=m.data/(ld*flat)
+        if check_flat:
+            corrected_data=m.data/(ld*flat)
+        else:
+            corrected_data=m.data/ld
         datas.append(corrected_data)
     med= np.nanmedian(datas, axis=0)
     if SAVE_CALIB:

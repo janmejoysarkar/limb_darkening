@@ -5,3 +5,4 @@ products/*
 reports/*
 src/config.py
 src/scratch.py
+src/__pycache__
